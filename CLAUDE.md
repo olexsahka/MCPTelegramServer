@@ -1,38 +1,38 @@
 # MCP Telegram Server
 
 ## Описание проекта
-MCP (Model Context Protocol) сервер для работы с Telegram через TDLib. Позволяет получать диалоги, сообщения и отправлять сообщения через MCP-тулзы. Работает от имени обычного пользователя Telegram (не бот).
+MCP (Model Context Protocol) сервер для работы с Telegram через TDLib. Позволяет AI-ассистентам (Claude и др.) читать и отправлять сообщения от имени обычного пользователя Telegram (не бот).
 
 ## Стек технологий
 - **Kotlin 2.0 + Spring Boot 3.3**
-- **TDLib** (tdlight-java) — Telegram MTProto клиент (заглушка, ожидает реализации)
+- **TDLib** (tdlight-java 3.4.4) — Telegram MTProto клиент, полностью реализован
 - **PostgreSQL 16** — хранение истории сообщений, диалогов, пользователей
-- **Redis 7** — кэш диалогов/сообщений + pub/sub для real-time обновлений
+- **Redis 7** — кэш + pub/sub для real-time обновлений
 - **WebSocket** (STOMP) — real-time обновления для админки
 - **Thymeleaf + Bootstrap 5** — админка
 - **Flyway** — миграции БД
 - **JUnit 5 + Testcontainers** — тестирование (TDD)
+- **Nginx** — reverse proxy на VPS
 
 ## Команды
 
 ```bash
-# Запуск инфраструктуры
-docker-compose up -d
+# Запуск инфраструктуры локально
+docker-compose up -d postgres redis
 
-# Сборка (только компиляция, без тестов)
+# Сборка (без тестов)
 ./gradlew build -x test
 
-# Компиляция
-./gradlew compileKotlin
+# Запуск unit-тестов (без Docker)
+./gradlew test --tests "org.example.mcptelegram.mcp.*" \
+               --tests "org.example.mcptelegram.security.RateLimitFilterTest" \
+               --tests "org.example.mcptelegram.messaging.WebSocketBrokerTest" \
+               --tests "org.example.mcptelegram.admin.AdminControllerTest"
 
-# Запуск тестов (требует Docker для Testcontainers)
+# Запуск всех тестов (требует Docker)
 ./gradlew test
 
-# Запуск только unit-тестов (без Docker)
-./gradlew test --tests "org.example.mcptelegram.mcp.*" \
-               --tests "org.example.mcptelegram.messaging.WebSocketBrokerTest"
-
-# Запуск приложения
+# Запуск приложения локально
 ./gradlew bootRun
 
 # Остановка инфраструктуры
@@ -43,33 +43,34 @@ docker-compose down
 
 ```
 src/main/kotlin/org/example/mcptelegram/
-├── McpTelegramApplication.kt            # Точка входа
+├── McpTelegramApplication.kt
 ├── config/
-│   ├── RedisConfig.kt                   # RedisTemplate, ObjectMapper (@Primary), ListenerContainer
-│   └── WebSocketConfig.kt              # STOMP endpoint /ws, /topic, /app
+│   ├── RedisConfig.kt                   # RedisTemplate, ObjectMapper (@Primary)
+│   └── WebSocketConfig.kt               # STOMP endpoint /ws, /topic, /app
 ├── mcp/
-│   ├── McpController.kt                # POST /mcp — tools/list, tools/call
-│   ├── McpToolHandler.kt               # Интерфейс для всех тулзов
-│   ├── McpToolRegistry.kt              # Автосбор всех McpToolHandler бинов
+│   ├── McpController.kt                 # POST /mcp — tools/list, tools/call
+│   ├── McpToolHandler.kt                # Интерфейс для всех тулзов
+│   ├── McpToolRegistry.kt               # Автосбор всех McpToolHandler бинов
 │   └── tools/
-│       ├── GetDialogsTool.kt           # get_dialogs
-│       ├── GetNewMessagesTool.kt       # get_new_messages
-│       ├── GetLastMessagesTool.kt      # get_last_messages (dialog_id, count)
-│       └── SendMessageTool.kt          # send_message (dialog_id, text)
+│       ├── GetDialogsTool.kt            # get_dialogs (limit)
+│       ├── GetNewMessagesTool.kt        # get_unread_messages
+│       ├── GetLastMessagesTool.kt       # get_last_messages (dialog_id, count)
+│       ├── SearchDialogTool.kt          # search_dialog (query)
+│       └── SendMessageTool.kt           # send_message (dialog_id, text)
 ├── telegram/
-│   ├── TelegramClient.kt               # Интерфейс (suspend функции)
-│   ├── TdLibTelegramClient.kt          # Заглушка — бросает UnsupportedOperationException
-│   ├── TelegramUpdateListener.kt       # TelegramUpdate → Redis pub/sub
+│   ├── TelegramClient.kt                # Интерфейс (suspend функции)
+│   ├── TdLibTelegramClient.kt           # Полная реализация через tdlight-java
+│   ├── TelegramUpdateListener.kt        # TelegramUpdate → Redis pub/sub
 │   └── model/
 │       ├── ChatType.kt
 │       ├── Dialog.kt
 │       ├── Message.kt
-│       └── TelegramUpdate.kt           # sealed class: NewMessage, ChatUpdated
+│       └── TelegramUpdate.kt            # sealed class: NewMessage, ChatUpdated
 ├── messaging/
-│   ├── DialogCacheService.kt           # Redis кэш dialog:{chatId}, messages:{chatId}:last
-│   ├── RedisPubSubService.kt           # Pub/Sub канал telegram.updates
-│   ├── TelegramPersistenceService.kt   # Upsert диалогов/сообщений в PostgreSQL
-│   ├── WebSocketBroker.kt              # Redis subscriber → PostgreSQL + STOMP
+│   ├── DialogCacheService.kt            # Redis кэш
+│   ├── RedisPubSubService.kt            # Pub/Sub канал telegram.updates
+│   ├── TelegramPersistenceService.kt    # Upsert диалогов/сообщений в PostgreSQL
+│   ├── WebSocketBroker.kt               # Redis subscriber → PostgreSQL + STOMP
 │   └── dto/
 │       ├── DialogDto.kt
 │       ├── MessageDto.kt
@@ -86,15 +87,17 @@ src/main/kotlin/org/example/mcptelegram/
 │       ├── MessageRepository.kt
 │       └── McpUserRepository.kt
 ├── admin/
-│   └── AdminController.kt             # /admin, /admin/dialogs, /admin/dialogs/{id}, /admin/log
+│   └── AdminController.kt              # /admin, /admin/dialogs, /admin/log
 └── security/
-    ├── SecurityConfig.kt               # httpBasic, CSRF disabled, /actuator permitAll
-    ├── McpUserDetailsService.kt        # UserDetailsService из БД mcp_users
-    ├── McpUserService.kt               # createUser, authenticate (BCrypt)
-    └── DataInitializer.kt             # Создаёт admin/admin при первом запуске
+    ├── SecurityConfig.kt                # httpBasic, CSRF off, stateless
+    ├── RateLimitFilter.kt               # 30 req/min per IP, returns 429
+    ├── McpUserDetailsService.kt         # UserDetailsService из БД mcp_users
+    ├── McpUserService.kt                # createUser, authenticate (BCrypt)
+    └── DataInitializer.kt              # Создаёт admin и mcp пользователей из env
 
 src/main/resources/
-├── application.yml
+├── application.yml                      # Все секреты через ${ENV_VAR}
+├── logback-spring.xml                   # prod: TDLib логи заглушены
 ├── db/migration/V1__init.sql
 ├── templates/admin/
 │   ├── dashboard.html
@@ -102,38 +105,32 @@ src/main/resources/
 │   ├── dialog-detail.html
 │   └── log.html
 └── static/
-    ├── js/admin.js                     # STOMP WebSocket + live log
+    ├── js/admin.js                      # STOMP WebSocket + live log
     └── css/admin.css
-
-src/test/kotlin/org/example/mcptelegram/
-├── AbstractIntegrationTest.kt          # Testcontainers: PostgreSQL + Redis
-├── persistence/                        # UserRepositoryTest, DialogRepositoryTest, ...
-├── messaging/                          # DialogCacheServiceTest, RedisPubSubServiceTest, ...
-├── telegram/                           # TelegramUpdateListenerTest
-├── mcp/                                # McpControllerTest + tools tests
-├── security/                           # SecurityConfigTest, McpUserServiceTest, ...
-└── admin/                              # AdminControllerTest
 ```
 
 ## MCP Tools
 
 | Tool | Параметры | Описание |
 |------|-----------|----------|
-| `get_dialogs` | — | Список всех диалогов с метаданными |
-| `get_new_messages` | — | Все непрочитанные сообщения |
-| `get_last_messages` | `dialog_id: Long, count: Int = 20` | N последних сообщений диалога |
-| `send_message` | `dialog_id: Long, text: String` | Отправить сообщение в диалог |
+| `get_dialogs` | `limit: Int = 100` | Список диалогов с unread_count |
+| `search_dialog` | `query: String` | Поиск диалога по имени |
+| `get_unread_messages` | — | Все непрочитанные сообщения |
+| `get_last_messages` | `dialog_id: Long, count: Int = 10` | N последних сообщений |
+| `send_message` | `dialog_id: Long, text: String` | Отправить сообщение |
+
+> **Saved Messages** — поиск через `search_dialog("saved messages")` возвращает чат с самим собой
 
 ### MCP API (JSON-RPC)
 
 ```bash
 # Список инструментов
-curl -u mcp:changeme -X POST http://localhost:8080/mcp \
+curl -u mcp:PASSWORD -X POST http://SERVER/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 
 # Вызов инструмента
-curl -u mcp:changeme -X POST http://localhost:8080/mcp \
+curl -u mcp:PASSWORD -X POST http://SERVER/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_last_messages","arguments":{"dialog_id":123456,"count":10}},"id":2}'
 ```
@@ -146,12 +143,45 @@ TDLib (MTProto, обычный пользователь)
         → Redis Pub/Sub (telegram.updates)
             → WebSocketBroker
                 ├── PostgreSQL (TelegramPersistenceService)
-                └── STOMP /topic/messages → Admin UI (live лог)
+                └── STOMP /topic/messages → Admin UI
 
-MCP Client → POST /mcp (HTTP Basic Auth)
+MCP Client (Claude) → POST /mcp (HTTP Basic Auth)
+    → RateLimitFilter (30 req/min)
     → McpController → McpToolRegistry → McpToolHandler
-        ├── Redis Cache (DialogCacheService)
-        └── TelegramClient (TdLibTelegramClient)
+        └── TelegramClient (TdLibTelegramClient) → TDLib
+```
+
+## TDLib авторизация
+
+Первый запуск — авторизация через env переменные:
+
+```bash
+# Шаг 1: запустить, дождаться AuthorizationStateWaitCode, Ctrl+C
+docker-compose run --rm app
+
+# Шаг 2: передать код (и 2FA пароль если есть)
+docker-compose run --rm \
+  -e TELEGRAM_AUTH_CODE=12345 \
+  -e TELEGRAM_AUTH_PASSWORD=yourpassword \
+  app
+
+# Шаг 3: после "authorized successfully" — запустить в фоне
+docker-compose up -d app
+```
+
+Сессия сохраняется в Docker volume `tdlib_data` — повторная авторизация не нужна.
+
+### Бэкап сессии
+
+```bash
+# Сохранить
+docker run --rm -v mcp-telegram_tdlib_data:/data -v /opt:/backup \
+  alpine tar -czf /backup/tdlib-session.tar.gz -C /data .
+
+# Восстановить на новом сервере
+docker volume create mcp-telegram_tdlib_data
+docker run --rm -v mcp-telegram_tdlib_data:/data -v /opt:/backup \
+  alpine tar -xzf /backup/tdlib-session.tar.gz -C /data
 ```
 
 ## База данных (PostgreSQL)
@@ -163,106 +193,85 @@ messages     (id, dialog_id FK, sender_id FK nullable, text, telegram_message_id
 mcp_users    (id, username UNIQUE, password_hash, created_at)
 ```
 
-Индексы: `messages(dialog_id, sent_at)`, `messages(telegram_message_id)`, `dialogs(telegram_chat_id)`
-
-## Redis
-
-- **Кэш**: `dialog:{chatId}` (TTL 5 мин), `messages:{chatId}:last` (TTL 1 мин)
-- **Pub/Sub**: канал `telegram.updates`, сообщения — JSON сериализованный `TelegramUpdateEvent`
-
 ## Аутентификация
 
-- **MCP endpoint** (`/mcp/**`) — HTTP Basic Auth, credentials: `mcp` / `changeme` (application.yml)
-- **Admin UI** (`/admin/**`) — HTTP Basic Auth, credentials из БД `mcp_users` (по умолчанию `admin`/`admin`)
-- **Actuator** (`/actuator/**`) — без аутентификации
-- **TDLib** — номер телефона + код + опционально 2FA (при первом запуске, требует реализации)
+- **MCP endpoint** (`/mcp/**`) — HTTP Basic Auth, credentials из env `MCP_USERNAME` / `MCP_PASSWORD`
+- **Admin UI** (`/admin/**`) — HTTP Basic Auth, credentials из env `MCP_ADMIN_USERNAME` / `MCP_ADMIN_PASSWORD`
+- **Actuator** (`/actuator/health`) — без аутентификации, `show-details: never`
+- **TDLib** — авторизация через `TELEGRAM_AUTH_CODE` / `TELEGRAM_AUTH_PASSWORD` env переменные
 
-## Конфигурация (application.yml)
+## Деплой на VPS
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/mcp_telegram
-    username: postgres
-    password: postgres
-  data:
-    redis:
-      host: localhost
-      port: 6379
+```bash
+# 1. Скопировать проект
+scp -i keyfile project.tar.gz root@SERVER:/opt/
+tar -xzf /opt/project.tar.gz -C /opt/mcp-telegram
 
-telegram:
-  api-id: YOUR_API_ID        # получить на my.telegram.org
-  api-hash: YOUR_API_HASH
-  phone: YOUR_PHONE_NUMBER
-  database-directory: ./tdlib-data
+# 2. Настроить .env
+cp .env.example .env && nano .env
 
-mcp:
-  auth:
-    username: mcp
-    password: changeme
+# 3. Собрать и запустить
+docker-compose --env-file .env up -d --build
+
+# 4. Nginx (уже настроен на /etc/nginx/sites-available/mcp-telegram)
+# Биндит 127.0.0.1:8080 → публичный порт 80
+
+# 5. Firewall
+ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw enable
+
+# 6. Автозапуск
+systemctl enable mcp-telegram
 ```
 
-## Статус реализации
+## Подключение к Claude Desktop
 
-### ✅ Завершено (фазы 0–7)
+Требует `mcp-remote` (npm):
 
-| Фаза | Описание | Тесты |
-|------|----------|-------|
-| 0 | Инфраструктура (Gradle, Docker, Flyway, config) | — |
-| 1 | Persistence layer (4 entity + 4 repository) | Testcontainers |
-| 2 | Redis layer (cache + pub/sub + DTO) | Testcontainers |
-| 3 | Telegram Client (интерфейс + заглушка + listener) | Unit (mock) |
-| 4 | WebSocket (STOMP + broker + persistence service) | Unit + Testcontainers |
-| 5 | MCP Protocol (4 tools + controller + registry) | Unit (mock) |
-| 6 | Security (httpBasic + BCrypt + DataInitializer) | Testcontainers |
-| 7 | Admin UI (Thymeleaf + Bootstrap + live log) | Unit (mock) |
+```json
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://SERVER_IP/mcp",
+        "--header",
+        "Authorization: Basic BASE64(mcp:PASSWORD)"
+      ]
+    }
+  }
+}
+```
 
-### ⏳ Ожидает
-
-#### Фаза 8: Документация
-- [ ] Создать `README.md` — описание проекта, требования (Java 21, Docker), быстрый старт, ASCII архитектурная диаграмма, MCP tools API с примерами запросов/ответов
-
-#### TDLib реализация (требует реального Telegram аккаунта)
-- [ ] Получить `api-id` и `api-hash` на [my.telegram.org](https://my.telegram.org)
-- [ ] Добавить зависимость `tdlight-java` в `build.gradle.kts` (репозиторий JitPack)
-- [ ] Реализовать `TdLibTelegramClient`:
-  - [ ] Инициализация TDLib параметров (api_id, api_hash, database_directory)
-  - [ ] Авторизация: waitPhoneNumber → waitCode → waitPassword → authorizationStateReady
-  - [ ] `getDialogs`: `TdApi.GetChats` → маппинг в `List<Dialog>`
-  - [ ] `getMessages`: `TdApi.GetChatHistory` → маппинг в `List<Message>`
-  - [ ] `sendMessage`: `TdApi.SendMessage` → маппинг в `Message`
-  - [ ] `getUnreadMessages`: `getDialogs` + фильтр `unreadCount > 0` + `getMessages`
-  - [ ] `setUpdateHandler`: регистрация `ResultHandler` на TDLib client
-- [ ] Добавить тест `TdLibTelegramClientTest` с `@Disabled("requires real Telegram account")`
-- [ ] Проверить end-to-end: `./gradlew bootRun` → авторизация → MCP `get_dialogs` → список диалогов
+Генерация Base64: `echo -n "mcp:PASSWORD" | base64`
 
 ## Конвенции кода
 
+- Все секреты — только через `${ENV_VAR}` в application.yml, никаких дефолтов с реальными значениями
 - TDD: тесты пишутся перед реализацией
-- `TelegramClient` — интерфейс, используется для мокирования в unit-тестах
-- Интеграционные тесты расширяют `AbstractIntegrationTest` (Testcontainers: PostgreSQL + Redis)
-- `TdLibTelegramClient` интеграционные тесты помечаются `@Disabled("requires real Telegram account")`
-- DTO классы (`messaging/dto/`) для передачи данных между слоями, Entity для JPA
-- `@MockBean` из `org.springframework.boot.test.mock.mockito` (Spring Boot 3.3)
-- Coroutines: `suspend` функции в `TelegramClient`, `runBlocking` в `McpController`
+- `TelegramClient` — интерфейс, мокируется в unit-тестах
+- Интеграционные тесты расширяют `AbstractIntegrationTest` (Testcontainers)
+- MCP тулзы возвращают `Map<String, Any?>` напрямую (не DTO)
+- `@MockBean` из `org.springframework.boot.test.mock.mockito`
+- Coroutines: `suspend` в `TelegramClient`, `runBlocking` в `McpController`
 
-## Запуск и проверка
+## Статус реализации
 
-```bash
-# 1. Инфраструктура
-docker-compose up -d
+### ✅ Завершено (все фазы)
 
-# 2. Все тесты
-./gradlew test
+| Фаза | Описание | Тесты |
+|------|----------|-------|
+| 0 | Инфраструктура (Gradle, Docker, Flyway) | — |
+| 1 | Persistence layer (4 entity + 4 repository) | Testcontainers |
+| 2 | Redis layer (cache + pub/sub + DTO) | Testcontainers |
+| 3 | TDLib полная реализация (авторизация, все методы) | Unit (mock) |
+| 4 | WebSocket (STOMP + broker + persistence) | Unit + Testcontainers |
+| 5 | MCP Protocol (5 tools + controller + registry) | Unit (mock) |
+| 6 | Security (httpBasic + BCrypt + RateLimit) | Unit + Testcontainers |
+| 7 | Admin UI (Thymeleaf + Bootstrap + live log) | Unit (mock) |
+| 8 | VPS деплой (Docker + Nginx + systemd + ufw) | — |
+| 9 | README + CLAUDE.md документация | — |
 
-# 3. Запуск приложения (TDLib пока заглушка)
-./gradlew bootRun
-
-# 4. Проверка MCP
-curl -u mcp:changeme http://localhost:8080/mcp \
-  -X POST -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
-
-# 5. Открыть админку
-open http://localhost:8080/admin   # логин: admin / admin
-```
+### ⏳ Планируется
+- SSL/HTTPS через Let's Encrypt (нужен домен)
+- Подключение к Claude Desktop через mcp-remote
