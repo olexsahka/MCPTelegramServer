@@ -1,0 +1,21 @@
+spring:
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+telegram:
+  api-id: 12345
+  api-hash: test_hash
+  phone: "+1234567890"
+  database-directory: ./tdlib-test-data
+
+mcp:
+  auth:
+    username: test_mcp
+    password: test_password
+  admin:
+    username: admin
+    password: admin

@@ -1,0 +1,11 @@
+.navbar-brand {
+    font-weight: bold;
+}
+
+.card {
+    margin-bottom: 1rem;
+}
+
+#log-table {
+    font-size: 0.9rem;
+}
