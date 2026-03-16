@@ -18,7 +18,7 @@ class GetLastMessagesToolTest {
         val messages = listOf(
             Message(messageId = 2L, chatId = 200L, senderName = "Bob", text = "Hello", date = LocalDateTime.now())
         )
-        whenever(telegramClient.getMessages(200L, 10)).thenReturn(messages)
+        whenever(telegramClient.getMessages(200L, 10, 0L)).thenReturn(messages)
 
         @Suppress("UNCHECKED_CAST")
         val result = tool.execute(mapOf("dialog_id" to 200L)) as List<Map<String, Any?>>
@@ -26,16 +26,25 @@ class GetLastMessagesToolTest {
         assertEquals(1, result.size)
         assertEquals(2L, result[0]["message_id"])
         assertEquals("Hello", result[0]["text"])
-        verify(telegramClient).getMessages(200L, 10)
+        verify(telegramClient).getMessages(200L, 10, 0L)
     }
 
     @Test
     fun `should use custom count parameter`() = runTest {
-        whenever(telegramClient.getMessages(100L, 5)).thenReturn(emptyList())
+        whenever(telegramClient.getMessages(100L, 5, 0L)).thenReturn(emptyList())
 
         tool.execute(mapOf("dialog_id" to 100L, "count" to 5))
 
-        verify(telegramClient).getMessages(100L, 5)
+        verify(telegramClient).getMessages(100L, 5, 0L)
+    }
+
+    @Test
+    fun `should pass from_message_id to telegram client`() = runTest {
+        whenever(telegramClient.getMessages(100L, 10, 999L)).thenReturn(emptyList())
+
+        tool.execute(mapOf("dialog_id" to 100L, "from_message_id" to 999L))
+
+        verify(telegramClient).getMessages(100L, 10, 999L)
     }
 
     @Test

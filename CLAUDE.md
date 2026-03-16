@@ -113,11 +113,13 @@ src/main/resources/
 
 | Tool | Параметры | Описание |
 |------|-----------|----------|
-| `get_dialogs` | `limit: Int = 100` | Список диалогов с unread_count |
+| `get_dialogs` | `limit: Int = 100, offset: Int = 0` | Список диалогов с unread_count |
 | `search_dialog` | `query: String` | Поиск диалога по имени |
-| `get_unread_messages` | — | Все непрочитанные сообщения |
-| `get_last_messages` | `dialog_id: Long, count: Int = 10` | N последних сообщений |
-| `send_message` | `dialog_id: Long, text: String` | Отправить сообщение |
+| `get_unread_messages` | `limit: Int = 50` | Непрочитанные сообщения |
+| `get_last_messages` | `dialog_id: Long, count: Int = 10, from_message_id: Long = 0` | N последних сообщений |
+| `get_message` | `dialog_id: Long, message_id: Long` | Получить сообщение по ID |
+| `send_message` | `dialog_id: Long, text: String, reply_to_message_id: Long?` | Отправить сообщение |
+| `mark_as_read` | `dialog_id: Long` | Пометить диалог прочитанным |
 
 > **Saved Messages** — поиск через `search_dialog("saved messages")` возвращает чат с самим собой
 
@@ -272,6 +274,32 @@ systemctl enable mcp-telegram
 | 8 | VPS деплой (Docker + Nginx + systemd + ufw) | — |
 | 9 | README + CLAUDE.md документация | — |
 
-### ⏳ Планируется
-- SSL/HTTPS через Let's Encrypt (нужен домен)
-- Подключение к Claude Desktop через mcp-remote
+### ⏳ Фаза 10 — улучшения (в работе)
+
+#### 🔴 Приоритет 1 — Критично
+
+| # | Задача | Статус |
+|---|--------|--------|
+| 1 | Формат ответа MCP: `content:[{type,text}]` вместо `result:[...]` | ✅ |
+| 2 | limit у get_unread_messages (дефолт 50) | ✅ |
+| 9 | HTTPS через Let's Encrypt (нужен домен) | ⏳ |
+
+#### 🟡 Приоритет 2 — Важно
+
+| # | Задача | Статус |
+|---|--------|--------|
+| 3 | dialog_id тип `integer` → `number` в JSON Schema | ✅ |
+| 4 | reply_to_message_id как опциональный параметр send_message | ✅ |
+
+#### 🟢 Приоритет 3 — Желательно
+
+| # | Задача | Статус |
+|---|--------|--------|
+| 5 | Пагинация get_dialogs (параметр offset) | ✅ |
+| 6 | Пагинация get_last_messages (параметр from_message_id) | ✅ |
+| 7 | Новый тул get_message(dialog_id, message_id) | ✅ |
+| 8 | Новый тул mark_as_read(dialog_id) | ✅ |
+
+#### Не планируется
+- Медиафайлы (фото, документы) — сложность + безопасность
+- Разграничение доступа по пользователям — пока один клиент

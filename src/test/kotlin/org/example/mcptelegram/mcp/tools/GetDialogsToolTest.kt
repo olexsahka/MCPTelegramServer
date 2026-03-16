@@ -19,7 +19,7 @@ class GetDialogsToolTest {
             Dialog(chatId = 1L, type = ChatType.PRIVATE, title = "Alice", unreadCount = 3),
             Dialog(chatId = 2L, type = ChatType.GROUP, title = "Team", unreadCount = 0)
         )
-        whenever(telegramClient.getDialogs(100)).thenReturn(dialogs)
+        whenever(telegramClient.getDialogs(100, 0)).thenReturn(dialogs)
 
         @Suppress("UNCHECKED_CAST")
         val result = tool.execute(emptyMap()) as List<Map<String, Any?>>
@@ -28,15 +28,24 @@ class GetDialogsToolTest {
         assertEquals(1L, result[0]["chat_id"])
         assertEquals("Alice", result[0]["title"])
         assertEquals(3, result[0]["unread_count"])
-        verify(telegramClient).getDialogs(100)
+        verify(telegramClient).getDialogs(100, 0)
     }
 
     @Test
     fun `should pass custom limit to telegram client`() = runTest {
-        whenever(telegramClient.getDialogs(10)).thenReturn(emptyList())
+        whenever(telegramClient.getDialogs(10, 0)).thenReturn(emptyList())
 
         tool.execute(mapOf("limit" to 10))
 
-        verify(telegramClient).getDialogs(10)
+        verify(telegramClient).getDialogs(10, 0)
+    }
+
+    @Test
+    fun `should pass offset to telegram client`() = runTest {
+        whenever(telegramClient.getDialogs(100, 50)).thenReturn(emptyList())
+
+        tool.execute(mapOf("offset" to 50))
+
+        verify(telegramClient).getDialogs(100, 50)
     }
 }

@@ -14,14 +14,16 @@ class GetDialogsTool(
     override val inputSchema = mapOf(
         "type" to "object",
         "properties" to mapOf(
-            "limit" to mapOf("type" to "integer", "description" to "Max number of dialogs to return", "default" to 100)
+            "limit" to mapOf("type" to "integer", "description" to "Max number of dialogs to return", "default" to 100),
+            "offset" to mapOf("type" to "integer", "description" to "Number of dialogs to skip", "default" to 0)
         ),
         "required" to emptyList<String>()
     )
 
     override suspend fun execute(params: Map<String, Any?>): Any {
         val limit = (params["limit"] as? Number)?.toInt() ?: 100
-        return telegramClient.getDialogs(limit).map { dialog ->
+        val offset = (params["offset"] as? Number)?.toInt() ?: 0
+        return telegramClient.getDialogs(limit, offset).map { dialog ->
             mapOf(
                 "chat_id" to dialog.chatId,
                 "type" to dialog.type.name,

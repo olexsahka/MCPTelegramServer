@@ -10,15 +10,18 @@ class GetNewMessagesTool(
 ) : McpToolHandler {
 
     override val name = "get_unread_messages"
-    override val description = "Get all unread messages across all dialogs"
+    override val description = "Get unread messages across all dialogs"
     override val inputSchema = mapOf(
         "type" to "object",
-        "properties" to emptyMap<String, Any>(),
+        "properties" to mapOf(
+            "limit" to mapOf("type" to "integer", "description" to "Max number of messages to return", "default" to 50)
+        ),
         "required" to emptyList<String>()
     )
 
     override suspend fun execute(params: Map<String, Any?>): Any {
-        return telegramClient.getUnreadMessages().map { message ->
+        val limit = (params["limit"] as? Number)?.toInt() ?: 50
+        return telegramClient.getUnreadMessages(limit).map { message ->
             mapOf(
                 "message_id" to message.messageId,
                 "chat_id" to message.chatId,

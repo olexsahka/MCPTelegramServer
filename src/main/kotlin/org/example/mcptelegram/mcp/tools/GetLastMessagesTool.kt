@@ -14,8 +14,9 @@ class GetLastMessagesTool(
     override val inputSchema = mapOf(
         "type" to "object",
         "properties" to mapOf(
-            "dialog_id" to mapOf("type" to "integer", "description" to "Telegram chat ID"),
-            "count" to mapOf("type" to "integer", "description" to "Number of messages to retrieve", "default" to 10)
+            "dialog_id" to mapOf("type" to "number", "description" to "Telegram chat ID"),
+            "count" to mapOf("type" to "integer", "description" to "Number of messages to retrieve", "default" to 10),
+            "from_message_id" to mapOf("type" to "number", "description" to "Retrieve messages before this ID (0 = from latest)", "default" to 0)
         ),
         "required" to listOf("dialog_id")
     )
@@ -24,8 +25,9 @@ class GetLastMessagesTool(
         val chatId = (params["dialog_id"] as? Number)?.toLong()
             ?: throw IllegalArgumentException("dialog_id is required")
         val count = (params["count"] as? Number)?.toInt() ?: 10
+        val fromMessageId = (params["from_message_id"] as? Number)?.toLong() ?: 0L
 
-        return telegramClient.getMessages(chatId, count).map { message ->
+        return telegramClient.getMessages(chatId, count, fromMessageId).map { message ->
             mapOf(
                 "message_id" to message.messageId,
                 "chat_id" to message.chatId,

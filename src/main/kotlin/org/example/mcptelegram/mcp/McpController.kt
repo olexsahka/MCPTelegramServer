@@ -1,5 +1,6 @@
 package org.example.mcptelegram.mcp
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.runBlocking
 import org.example.mcptelegram.mcp.model.McpError
 import org.example.mcptelegram.mcp.model.McpRequest
@@ -13,7 +14,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/mcp")
 class McpController(
-    private val toolRegistry: McpToolRegistry
+    private val toolRegistry: McpToolRegistry,
+    private val objectMapper: ObjectMapper
 ) {
 
     @PostMapping
@@ -40,7 +42,9 @@ class McpController(
                     @Suppress("UNCHECKED_CAST")
                     val toolParams = (request.params?.get("arguments") as? Map<String, Any?>) ?: emptyMap()
                     val result = runBlocking { tool.execute(toolParams) }
-                    ResponseEntity.ok(McpResponse(result = result, id = request.id))
+                    val text = objectMapper.writeValueAsString(result)
+                    val content = mapOf("content" to listOf(mapOf("type" to "text", "text" to text)))
+                    ResponseEntity.ok(McpResponse(result = content, id = request.id))
                 } catch (e: Exception) {
                     ResponseEntity.ok(McpResponse(
                         error = McpError(-32603, e.message ?: "Internal error"),

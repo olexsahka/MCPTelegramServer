@@ -16,7 +16,7 @@ class SendMessageToolTest {
     @Test
     fun `should send message and return result`() = runTest {
         val sentMessage = Message(messageId = 10L, chatId = 100L, text = "Hello", date = LocalDateTime.now())
-        whenever(telegramClient.sendMessage(100L, "Hello")).thenReturn(sentMessage)
+        whenever(telegramClient.sendMessage(100L, "Hello", null)).thenReturn(sentMessage)
 
         @Suppress("UNCHECKED_CAST")
         val result = tool.execute(mapOf("dialog_id" to 100L, "text" to "Hello")) as Map<String, Any?>
@@ -24,7 +24,17 @@ class SendMessageToolTest {
         assertEquals(10L, result["message_id"])
         assertEquals(100L, result["chat_id"])
         assertEquals("Hello", result["text"])
-        verify(telegramClient).sendMessage(100L, "Hello")
+        verify(telegramClient).sendMessage(100L, "Hello", null)
+    }
+
+    @Test
+    fun `should send reply when reply_to_message_id provided`() = runTest {
+        val sentMessage = Message(messageId = 11L, chatId = 100L, text = "Reply", date = LocalDateTime.now())
+        whenever(telegramClient.sendMessage(100L, "Reply", 5L)).thenReturn(sentMessage)
+
+        tool.execute(mapOf("dialog_id" to 100L, "text" to "Reply", "reply_to_message_id" to 5L))
+
+        verify(telegramClient).sendMessage(100L, "Reply", 5L)
     }
 
     @Test

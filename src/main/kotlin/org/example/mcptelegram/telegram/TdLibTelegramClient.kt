@@ -108,10 +108,10 @@ class TdLibTelegramClient(
         if (::factory.isInitialized) runCatching { factory.close() }
     }
 
-    override suspend fun getDialogs(limit: Int): List<Dialog> {
+    override suspend fun getDialogs(limit: Int, offset: Int): List<Dialog> {
         // GetChats returns IDs already known to TDLib cache — no blocking call needed
-        val chats = client.send(TdApi.GetChats(TdApi.ChatListMain(), limit)).await()
-        return chats.chatIds.toList().mapNotNull { chatId: Long ->
+        val chats = client.send(TdApi.GetChats(TdApi.ChatListMain(), limit + offset)).await()
+        return chats.chatIds.toList().drop(offset).mapNotNull { chatId: Long ->
             runCatching {
                 client.send(TdApi.GetChat(chatId)).await().let { mapChat(it) }
             }.onFailure { log.warn("Failed to get chat $chatId", it) }.getOrNull()
@@ -135,12 +135,18 @@ class TdLibTelegramClient(
         }
     }
 
-    override suspend fun getMessages(chatId: Long, limit: Int): List<Message> {
-        val history = client.send(TdApi.GetChatHistory(chatId, 0, 0, limit, false)).await()
+    override suspend fun getMessages(chatId: Long, limit: Int, fromMessageId: Long): List<Message> {
+        val history = client.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, limit, false)).await()
         return history.messages.map { mapMessage(it) }
     }
 
-    override suspend fun getUnreadMessages(): List<Message> {
+    override suspend fun getMessage(chatId: Long, messageId: Long): Message? {
+        return runCatching {
+            client.send(TdApi.GetMessage(chatId, messageId)).await().let { mapMessage(it) }
+        }.onFailure { log.warn("Failed to get message $messageId in chat $chatId", it) }.getOrNull()
+    }
+
+    override suspend fun getUnreadMessages(limit: Int): List<Message> {
         val dialogs = getDialogs()
         return dialogs
             .filter { it.unreadCount > 0 }
@@ -150,17 +156,29 @@ class TdLibTelegramClient(
                 }.onFailure { log.warn("Failed to get messages for chat ${dialog.chatId}", it) }
                     .getOrElse { emptyList() }
             }
+            .take(limit)
     }
 
-    override suspend fun sendMessage(chatId: Long, text: String): Message {
+    override suspend fun sendMessage(chatId: Long, text: String, replyToMessageId: Long?): Message {
         val req = TdApi.SendMessage().apply {
             this.chatId = chatId
             inputMessageContent = TdApi.InputMessageText().apply {
                 this.text = TdApi.FormattedText(text, emptyArray())
             }
+            if (replyToMessageId != null) {
+                replyTo = TdApi.InputMessageReplyToMessage(replyToMessageId, null, 0)
+            }
         }
         val sent = client.sendMessage(req, true).await()
         return mapMessage(sent)
+    }
+
+    override suspend fun markAsRead(chatId: Long) {
+        val history = client.send(TdApi.GetChatHistory(chatId, 0, 0, 1, false)).await()
+        val messageIds = history.messages.map { it.id }.toLongArray()
+        if (messageIds.isNotEmpty()) {
+            client.send(TdApi.ViewMessages(chatId, messageIds, null, true)).await()
+        }
     }
 
     override fun setUpdateHandler(handler: (TelegramUpdate) -> Unit) {

@@ -5,33 +5,35 @@ import org.example.mcptelegram.telegram.TelegramClient
 import org.springframework.stereotype.Component
 
 @Component
-class SendMessageTool(
+class GetMessageTool(
     private val telegramClient: TelegramClient
 ) : McpToolHandler {
 
-    override val name = "send_message"
-    override val description = "Send a message to a Telegram dialog"
+    override val name = "get_message"
+    override val description = "Get a specific message by ID from a dialog"
     override val inputSchema = mapOf(
         "type" to "object",
         "properties" to mapOf(
             "dialog_id" to mapOf("type" to "number", "description" to "Telegram chat ID"),
-            "text" to mapOf("type" to "string", "description" to "Message text"),
-            "reply_to_message_id" to mapOf("type" to "number", "description" to "ID of message to reply to (optional)")
+            "message_id" to mapOf("type" to "number", "description" to "Telegram message ID")
         ),
-        "required" to listOf("dialog_id", "text")
+        "required" to listOf("dialog_id", "message_id")
     )
 
     override suspend fun execute(params: Map<String, Any?>): Any {
         val chatId = (params["dialog_id"] as? Number)?.toLong()
             ?: throw IllegalArgumentException("dialog_id is required")
-        val text = params["text"] as? String
-            ?: throw IllegalArgumentException("text is required")
-        val replyToMessageId = (params["reply_to_message_id"] as? Number)?.toLong()
+        val messageId = (params["message_id"] as? Number)?.toLong()
+            ?: throw IllegalArgumentException("message_id is required")
 
-        val message = telegramClient.sendMessage(chatId, text, replyToMessageId)
+        val message = telegramClient.getMessage(chatId, messageId)
+            ?: return mapOf("error" to "Message not found")
+
         return mapOf(
             "message_id" to message.messageId,
             "chat_id" to message.chatId,
+            "sender_id" to message.senderId,
+            "sender_name" to message.senderName,
             "text" to message.text,
             "date" to message.date.toString()
         )

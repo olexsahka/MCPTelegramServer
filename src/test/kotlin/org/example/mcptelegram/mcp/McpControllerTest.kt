@@ -7,6 +7,7 @@ import org.example.mcptelegram.security.McpUserDetailsService
 import org.example.mcptelegram.security.SecurityConfig
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.*
+import org.mockito.kotlin.doReturn
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.boot.test.mock.mockito.MockBean
@@ -63,6 +64,30 @@ class McpControllerTest {
         }.andExpect {
             status { isOk() }
             jsonPath("$.error.code") { value(-32601) }
+        }
+    }
+
+    @Test
+    @WithMockUser
+    fun `should wrap tool result in MCP content format`() {
+        val mockTool = mock<McpToolHandler> {
+            onBlocking { execute(any()) } doReturn listOf(mapOf("chat_id" to 1L, "title" to "Alice"))
+        }
+        whenever(toolRegistry.getTool("get_dialogs")).thenReturn(mockTool)
+
+        val request = McpRequest(
+            method = "tools/call",
+            params = mapOf("name" to "get_dialogs", "arguments" to emptyMap<String, Any>()),
+            id = 4
+        )
+
+        mockMvc.post("/mcp") {
+            contentType = MediaType.APPLICATION_JSON
+            content = objectMapper.writeValueAsString(request)
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.result.content[0].type") { value("text") }
+            jsonPath("$.result.content[0].text") { isString() }
         }
     }
 
