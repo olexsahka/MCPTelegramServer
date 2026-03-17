@@ -228,6 +228,116 @@ ufw enable
 
 ---
 
+## Connect from Android Emulator (Local Development)
+
+This section describes how to connect an Android app (or any local MCP client) running in an Android emulator to the server running on the same machine.
+
+### How it works
+
+Android emulator maps `10.0.2.2` → `localhost` of the host machine. So if the server runs on `localhost:8080`, the emulator reaches it at `http://10.0.2.2:8080`.
+
+### Step 1 — Start server locally (without Docker)
+
+```bash
+# Start only infrastructure
+docker-compose up -d postgres redis
+
+# Run app directly (no container — emulator can reach it via 10.0.2.2)
+./gradlew bootRun
+```
+
+> **Why not `docker-compose up app`?** When the app runs inside Docker, it binds to `127.0.0.1` of the container network, not the host. The emulator cannot reach it. Running via `./gradlew bootRun` binds to the host's `localhost`, which is accessible at `10.0.2.2` from the emulator.
+
+Alternatively, if you want to use Docker, change the app port binding in `docker-compose.yml`:
+```yaml
+services:
+  app:
+    ports:
+      - "0.0.0.0:8080:8080"   # expose on all interfaces, not just 127.0.0.1
+```
+
+### Step 2 — Authorize TDLib (first run only)
+
+```bash
+# First run — TDLib sends code to your phone
+./gradlew bootRun
+# Wait for "AuthorizationStateWaitCode" in logs, then Ctrl+C
+
+# Re-run with the code
+TELEGRAM_AUTH_CODE=12345 TELEGRAM_AUTH_PASSWORD=yourpassword ./gradlew bootRun
+# Wait for "authorized successfully", then Ctrl+C
+
+# Normal run — session is saved, no re-auth needed
+./gradlew bootRun
+```
+
+Session is saved in `./tdlib-data/` directory locally.
+
+### Step 3 — Allow cleartext HTTP in Android app
+
+Add to `res/xml/network_security_config.xml`:
+```xml
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
+```
+
+Reference it in `AndroidManifest.xml`:
+```xml
+<application
+    android:networkSecurityConfig="@xml/network_security_config"
+    ...>
+```
+
+### Step 4 — MCP client connection
+
+```
+MCP endpoint:  http://10.0.2.2:8080/mcp
+Auth:          HTTP Basic — username: mcp, password: your MCP_PASSWORD
+```
+
+Example with `mcp-remote` (for Claude Desktop testing from same machine):
+```json
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8080/mcp",
+        "--header",
+        "Authorization: Basic BASE64(mcp:YOUR_MCP_PASSWORD)",
+        "--allow-http"
+      ]
+    }
+  }
+}
+```
+
+### Address reference
+
+| Client environment | Server address |
+|--------------------|---------------|
+| Android Emulator (AVD) | `http://10.0.2.2:8080` |
+| Genymotion | `http://10.0.3.2:8080` |
+| Physical device (same WiFi) | `http://192.168.x.x:8080` (find with `ipconfig`/`ifconfig`) |
+| Claude Desktop (same machine) | `http://localhost:8080` |
+
+### Verify connection from emulator
+
+```bash
+# From host — confirm server is up
+curl -u mcp:YOUR_MCP_PASSWORD -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+If the server responds, the emulator will reach it at `10.0.2.2:8080` with the same credentials.
+
+---
+
 ## Connect to Claude Desktop
 
 This server uses **HTTP transport** (JSON-RPC over HTTP). Claude Desktop requires a local stdio bridge — use [`mcp-remote`](https://github.com/geelen/mcp-remote).
